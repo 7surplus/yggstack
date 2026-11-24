@@ -1,0 +1,185 @@
+name: Build and Release APK
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      # GitHub Actions uses glob patterns here, not regular expressions.
+      # Creating a version tag (for example v2.7.3) is the explicit release trigger.
+      - 'v*'
+
+jobs:
+  build:
+    name: Build (Go, arm64-v8a)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version tag
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Release requires a version tag such as v2.7.3" >&2
+            exit 1
+          }
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install NDK 28.2.13676358
+        run: |
+          echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.2.13676358" >> $GITHUB_ENV
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260908204917-8b95e45f8d3e
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260908204917-8b95e45f8d3e
+          mkdir -p "$(go env GOPATH)/pkg/gomobile"
+
+      - name: Get version from git tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "APP_VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build yggstack AAR
+        run: |
+          cd lib/yggstack
+          chmod +x mobile/build-android.sh
+          ./mobile/build-android.sh
+          mkdir -p ../../app/libs/
+          cp android-build/yggstack.aar ../../app/libs/
+
+      - name: Download Hev SOCKS5 tunnel AAR
+        run: |
+          curl -fsSL --retry 3 \
+            https://github.com/heiher/hev-socks5-tunnel/releases/download/2.20.0/hev-socks5-tunnel.aar \
+            -o app/libs/hev-socks5-tunnel.aar
+
+      - name: Download latest public nodes
+        run: |
+          curl -fsSL --max-time 15 https://publicpeers.neilalexander.dev/publicnodes.json \
+            -o app/src/main/assets/publicnodes.json \
+          || curl -fsSL --max-time 15 https://peers.yggdrasil.link/publicnodes.json \
+            -o app/src/main/assets/publicnodes.json \
+          || echo "All mirrors unavailable; keeping committed publicnodes.json"
+
+      - name: Decode keystore
+        env:
+          ANDROID_KEY: ${{ secrets.ANDROID_KEY || secrets.KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEY" || { echo "ANDROID_KEY (or legacy KEYSTORE_FILE) secret is empty" >&2; exit 1; }
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          value = os.environ["ANDROID_KEY"]
+          try:
+              data = json.loads(value)
+          except json.JSONDecodeError:
+              data = None
+
+          if isinstance(data, dict):
+              encoded = data.get("keystoreBase64", "")
+              secrets = {
+                  "KEYSTORE_PASSWORD": data.get("storePassword") or os.environ.get("KEYSTORE_PASSWORD", ""),
+                  "KEY_ALIAS": data.get("keyAlias") or os.environ.get("KEY_ALIAS", ""),
+                  "KEY_PASSWORD": data.get("keyPassword") or os.environ.get("KEY_PASSWORD", ""),
+              }
+          else:
+              encoded = value
+              secrets = {name: os.environ.get(name, "") for name in ("KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")}
+
+          if not encoded:
+              raise SystemExit("ANDROID_KEY JSON must contain keystoreBase64")
+          try:
+              keystore = base64.b64decode("".join(encoded.split()), validate=True)
+          except Exception as error:
+              raise SystemExit("ANDROID_KEY must be base64 or JSON containing keystoreBase64") from error
+          if not keystore:
+              raise SystemExit("Decoded keystore is empty")
+          Path(os.environ["GITHUB_WORKSPACE"], "release.keystore").write_bytes(keystore)
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              for name, secret in secrets.items():
+                  if not secret or "\n" in secret or "\r" in secret:
+                      raise SystemExit(f"Missing or invalid {name}; set it in ANDROID_KEY or as a separate Actions secret")
+                  print(f"::add-mask::{secret}")
+                  env_file.write(f"{name}={secret}\n")
+          PY
+
+      - name: Validate keystore
+        run: |
+          keytool -list -keystore "$GITHUB_WORKSPACE/release.keystore" \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+
+      - name: Build release APK
+        env:
+          KEYSTORE_FILE: ${{ github.workspace }}/release.keystore
+        run: ./gradlew assembleGoRelease
+
+      - name: Prepare release APK
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          cp app/build/outputs/apk/go/release/app-go-arm64-v8a-release.apk "dist/yggstack-${VERSION}-arm64-v8a.apk"
+          ls -lh dist/
+
+      - name: Generate changelog
+        run: |
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p')
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "Changes since ${PREVIOUS_TAG}:" > release_body.md
+            git log --pretty=format:"- %s (%h)" "${PREVIOUS_TAG}..${GITHUB_REF_NAME}" >> release_body.md
+          else
+            echo "Initial release" > release_body.md
+            git log --pretty=format:"- %s (%h)" "${GITHUB_REF_NAME}" >> release_body.md
+          fi
+          printf '\n\nAPK: arm64-v8a (64-bit ARM)\n' >> release_body.md
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*.apk
+          body_path: release_body.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep only the newest version tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          current="${GITHUB_REF_NAME}"
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            [ "$tag" = "$current" ] && continue
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release delete "$tag" --yes
+            fi
+            git push origin ":refs/tags/$tag"
+          done < <(git ls-remote --refs --tags origin | awk '{sub("refs/tags/", "", $2); print $2}' | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vu)
