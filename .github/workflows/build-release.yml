@@ -86,10 +86,10 @@ jobs:
 
       - name: Decode keystore
         env:
-          ANDROID_KEY: ${{ secrets.ANDROID_KEY || secrets.KEYSTORE_FILE }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          ANDROID_KEY: ${{ vars.ANDROID_KEY || vars.KEYSTORE_FILE || secrets.ANDROID_KEY || secrets.KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ vars.KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ vars.KEY_ALIAS || secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ vars.KEY_PASSWORD || secrets.KEY_PASSWORD }}
         run: |
           test -n "$ANDROID_KEY" || { echo "ANDROID_KEY (or legacy KEYSTORE_FILE) secret is empty" >&2; exit 1; }
           python3 - <<'PY'
