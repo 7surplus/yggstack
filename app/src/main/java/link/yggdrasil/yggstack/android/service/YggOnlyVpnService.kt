@@ -62,8 +62,10 @@ class YggOnlyVpnService : VpnService() {
                 // Android DNS resolver AAAA-query compatibility route, also used
                 // by yggdrasil-android; all other public IPv6 stays off this VPN.
                 .addRoute("2000::", 128)
-                // Keep ordinary IPv4 traffic on Android's underlying network and
-                // let apps bypass this route-only VPN for destinations outside Yggdrasil.
+                // A VPN with IPv6 routes can otherwise block IPv6 destinations that
+                // do not match a VPN route. Let ordinary IPv6 fall through to the
+                // underlying network, just as IPv4 does; only Yggdrasil uses Hev.
+                .allowFamily(OsConstants.AF_INET6)
                 .allowFamily(OsConstants.AF_INET)
                 .allowBypass()
 
