@@ -57,10 +57,8 @@ class YggOnlyVpnService : VpnService() {
                 .setMtu(1500)
                 // Give apps the actual Yggdrasil address so they can bind to it.
                 .addAddress(localYggAddress, 7)
-                // Yggdrasil's routed address space, matching yggdrasil-android.
+                // Yggdrasil's 200::/7 allocation includes routed 300::/8 subnets.
                 .addRoute("200::", 7)
-                // Routed Yggdrasil subnets (including delegated services) use 300::/8.
-                .addRoute("300::", 8)
                 // Android DNS resolver AAAA-query compatibility route, also used
                 // by yggdrasil-android; all other public IPv6 stays off this VPN.
                 .addRoute("2000::", 128)
