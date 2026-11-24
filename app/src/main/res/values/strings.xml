@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Yggstack</string>
+    <string name="app_name">Yggstack Plus</string>
 
     <!-- Navigation -->
     <string name="nav_configuration">Configuration</string>
@@ -154,6 +154,13 @@
     <string name="service_on_app_start_do_nothing">Do nothing</string>
     <string name="autostart_description">Note: Xiaomi, Huawei, Oppo may require additional autostart permission in their system settings.</string>
     <string name="general_section">General</string>
+    <string name="ygg_vpn_title">Yggdrasil only VPN</string>
+    <string name="ygg_vpn_description">Routes only Yggdrasil IPv6 (200::/7) through the local SOCKS5 proxy using Hev. Start Yggstack with SOCKS5 enabled first. TCP and UDP are carried through SOCKS5. Android controls the TUN interface name; its VPN label is Yggdrasil.</string>
+    <string name="ygg_vpn_start">Start Yggdrasil VPN</string>
+    <string name="ygg_vpn_stop">Stop Yggdrasil VPN</string>
+    <string name="ygg_vpn_running">Routing Yggdrasil IPv6 through Hev SOCKS5</string>
+    <string name="ygg_vpn_enable_socks_first">Enable the SOCKS5 listener in Yggstack configuration first.</string>
+    <string name="ygg_vpn_invalid_socks">Invalid SOCKS5 listen address. Use host:port or [IPv6]:port.</string>
     <string name="auto_update_section">Check for updates</string>
     <string name="auto_update_enabled">Check for updates</string>
     <string name="auto_update_description">Automatically check for new versions on startup</string>
