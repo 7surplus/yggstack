@@ -47,10 +47,18 @@ jobs:
         run: ./gradlew --no-daemon assembleGoRelease
       - name: Sign
         run: |
+          set -euo pipefail
           BT=$ANDROID_HOME/build-tools/35.0.0
           DIR=app/build/outputs/apk/go/release
-          APK=$DIR/app-go-arm64-v8a-release.apk
+          mapfile -t APKS < <(find "$DIR" -maxdepth 1 -type f -name '*.apk' -print)
+          if [ "${#APKS[@]}" -ne 1 ]; then
+            echo "Expected exactly one arm64 APK, found ${#APKS[@]}:"
+            ls -lh "$DIR"
+            exit 1
+          fi
+          APK=${APKS[0]}
           test -s "$APK"
+          echo "Signing $APK"
           keytool -genkeypair -keystore ygg.jks -alias ygg -keyalg RSA -keysize 2048 \
             -validity 10000 -storepass yggpass -keypass yggpass -dname "CN=ygg"
           $BT/zipalign -f 4 "$APK" aligned.apk

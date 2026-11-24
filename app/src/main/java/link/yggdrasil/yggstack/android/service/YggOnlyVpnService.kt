@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.system.OsConstants
 import androidx.core.app.NotificationCompat
 import hev.htproxy.TProxyService
 import link.yggdrasil.yggstack.android.R
@@ -55,7 +56,7 @@ class YggOnlyVpnService : VpnService() {
                 .setSession("Yggdrasil")
                 .setMtu(1500)
                 // Give apps the actual Yggdrasil address so they can bind to it.
-                .addAddress(localYggAddress, 128)
+                .addAddress(localYggAddress, 7)
                 // Yggdrasil's routed address space, matching yggdrasil-android.
                 .addRoute("200::", 7)
                 // Routed Yggdrasil subnets (including delegated services) use 300::/8.
@@ -63,6 +64,10 @@ class YggOnlyVpnService : VpnService() {
                 // Android DNS resolver AAAA-query compatibility route, also used
                 // by yggdrasil-android; all other public IPv6 stays off this VPN.
                 .addRoute("2000::", 128)
+                // Keep ordinary IPv4 traffic on Android's underlying network and
+                // let apps bypass this route-only VPN for destinations outside Yggdrasil.
+                .allowFamily(OsConstants.AF_INET)
+                .allowBypass()
 
             tun = builder.establish() ?: error("Android did not establish the VPN interface")
 
