@@ -200,7 +200,7 @@ android {
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        applicationId = "link.yggdrasil.yggstack.android"
+        applicationId = "link.yggdrasil.yggstack.android.plus"
         minSdk = 23
         targetSdk = 34
         versionCode = getVersionCode()
@@ -330,6 +330,9 @@ dependencies {
     // Native engines (one per flavor)
     // go: gomobile AAR (built from lib/yggstack, committed prebuilt)
     add("goImplementation", files("libs/yggstack.aar"))
+    // Android TUN-to-SOCKS bridge used by YggOnlyVpnService. The Plus installer
+    // fetches the upstream, ABI-complete AAR into app/libs before building.
+    implementation(files("libs/hev-socks5-tunnel.aar"))
     // ng: Rust .so files live in src/ng/jniLibs (built from lib/yggstack-ng
     // with cargo-ndk; gitignored), UniFFI Kotlin bindings in src/ng/java;
     // JNA is required by the UniFFI 0.29 generated bindings
