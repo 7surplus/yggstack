@@ -743,6 +743,10 @@ class YggstackService : Service() {
 
                 if (lifecycle.isDestroyed) return
                 _yggdrasilIp.value = yggstack?.getAddress()
+                // Internal-interface targets need the node address, which is
+                // only available after the engine starts. Register these after
+                // start; ordinary expose mappings were registered beforehand.
+                setupInternalInterfaceExposeMappings(config)
 
                 logDebug("Setting service running state...")
                 val wasIdle = _isPowerSaveIdle.value
@@ -1204,13 +1208,13 @@ class YggstackService : Service() {
             if (config.exposeEnabled && config.exposeMappings.isNotEmpty()) {
                 logDebug("Setting up ${config.exposeMappings.size} expose port mapping(s)...")
                 config.exposeMappings.forEach { mapping ->
-                    if (!mapping.enabled) {
-                        logInfo("↷ Skipping disabled expose mapping: ${mapping.protocol} port ${mapping.yggPort} -> ${mapping.localIp}:${mapping.localPort}")
+                    if (mapping.sendToInternalInterface) return@forEach
+                    val localAddr = exposeTargetAddress(mapping)
+                    if (!mapping.enabled || localAddr == null) {
+                        logInfo("↷ Skipping expose mapping: ${mapping.protocol} port ${mapping.yggPort} -> ${localAddr ?: "internal Ygg address unavailable"}")
                         return@forEach
                     }
                     try {
-                        val localAddr = "${mapping.localIp}:${mapping.localPort}"
-                        
                         logDebug("Configuring ${mapping.protocol} expose mapping: Ygg port ${mapping.yggPort} -> $localAddr")
                         
                         when (mapping.protocol) {
@@ -1246,7 +1250,11 @@ class YggstackService : Service() {
      * Calls the corresponding Add/Remove binding on the Go layer and logs the change.
      */
     fun enableExposeMapping(mapping: link.yggdrasil.yggstack.android.data.ExposeMapping, enable: Boolean) {
-        val localAddr = "${mapping.localIp}:${mapping.localPort}"
+        val localAddr = exposeTargetAddress(mapping)
+        if (localAddr == null) {
+            logError("Cannot enable expose mapping: internal Ygg address is unavailable")
+            return
+        }
         val action = if (enable) "Enabling" else "Disabling"
         logInfo("$action expose rule: ${mapping.protocol.name} port ${mapping.yggPort} -> $localAddr")
         try {
@@ -1280,6 +1288,30 @@ class YggstackService : Service() {
         // A freshly enabled expose gets an immediate verdict when there is
         // connectivity to check against (no-op otherwise).
         if (enable) schedulePortChecks(delayMs = 500)
+    }
+
+    private fun exposeTargetAddress(mapping: ExposeMapping): String? {
+        val host = if (mapping.sendToInternalInterface) {
+            _yggdrasilIp.value?.takeIf { it.isNotBlank() } ?: return null
+        } else mapping.localIp
+        val formattedHost = if (':' in host && !host.startsWith("[")) "[$host]" else host
+        return "$formattedHost:${mapping.localPort}"
+    }
+
+    private fun setupInternalInterfaceExposeMappings(config: YggstackConfig) {
+        config.exposeMappings.filter { it.enabled && it.sendToInternalInterface }.forEach { mapping ->
+            val localAddr = exposeTargetAddress(mapping)
+            if (localAddr == null) {
+                logError("Cannot expose port ${mapping.yggPort}: internal Ygg address is unavailable")
+                return@forEach
+            }
+            runCatching {
+                when (mapping.protocol) {
+                    Protocol.TCP -> yggstack?.addRemoteTcpMapping(mapping.yggPort.toLong(), localAddr)
+                    Protocol.UDP -> yggstack?.addRemoteUdpMapping(mapping.yggPort.toLong(), localAddr)
+                }
+            }.onFailure { e -> logError("Error adding internal-interface expose mapping: ${e.message}") }
+        }
     }
 
     /**
@@ -2816,7 +2848,9 @@ class YggstackService : Service() {
                 config.exposeMappings.filter { it.enabled }.forEach { mapping ->
                     launch(Dispatchers.IO) {
                         val verdict = checkLocalService(
-                            mapping.protocol, mapping.localIp, mapping.localPort
+                            mapping.protocol,
+                            if (mapping.sendToInternalInterface) _yggdrasilIp.value ?: mapping.localIp else mapping.localIp,
+                            mapping.localPort
                         )
                         if (verdict != null &&
                             _isRunning.value && !_isPowerSaveIdle.value && _peerCount.value > 0

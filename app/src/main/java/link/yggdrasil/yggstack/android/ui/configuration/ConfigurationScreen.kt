@@ -2020,6 +2020,7 @@ fun ExposeMappingDialog(
     var protocol by remember { mutableStateOf(fill?.protocol ?: Protocol.TCP) }
     var localPort by remember { mutableStateOf(fill?.localPort?.toString() ?: "") }
     var localIp by remember { mutableStateOf(fill?.localIp ?: "127.0.0.1") }
+    var sendToInternalInterface by remember { mutableStateOf(fill?.sendToInternalInterface ?: false) }
     var yggPort by remember { mutableStateOf(fill?.yggPort?.toString() ?: "") }
     var shortName by remember { mutableStateOf(fill?.shortName ?: "") }
     var note by remember { mutableStateOf(fill?.note ?: "") }
@@ -2046,7 +2047,8 @@ fun ExposeMappingDialog(
     val localConflict = run {
         val portNum = localPort.toIntOrNull() ?: return@run false
         existingExposeMappings.any { m ->
-            m != initialMapping && m.protocol == protocol && m.localIp == localIp && m.localPort == portNum
+            m != initialMapping && m.protocol == protocol && m.localIp == localIp &&
+                m.sendToInternalInterface == sendToInternalInterface && m.localPort == portNum
         } || existingForwardMappings.any { m ->
             m.protocol == protocol && m.localIp == localIp && m.localPort == portNum
         }
@@ -2124,6 +2126,17 @@ fun ExposeMappingDialog(
                     } else null
                 )
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = sendToInternalInterface,
+                        onCheckedChange = { sendToInternalInterface = it }
+                    )
+                    Text("Send to internal interface")
+                }
+
                 OutlinedTextField(
                     value = yggPort,
                     onValueChange = { 
@@ -2164,7 +2177,11 @@ fun ExposeMappingDialog(
             TextButton(
                 onClick = {
                     if (validatePort(localPort) && validateIPv4(localIp) && validatePort(yggPort)) {
-                        onConfirm(ExposeMapping(protocol, localPort.toInt(), localIp, yggPort.toInt(), shortName.trim(), note.trim(), enabled = !localConflict))
+                        onConfirm(ExposeMapping(
+                            protocol, localPort.toInt(), localIp, yggPort.toInt(),
+                            shortName.trim(), note.trim(), enabled = !localConflict,
+                            sendToInternalInterface = sendToInternalInterface
+                        ))
                     }
                 },
                 enabled = allValid

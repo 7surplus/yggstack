@@ -110,7 +110,8 @@ data class ExposeMapping(
     // Free-form multiline note for the mapped service (keys, passwords, description).
     // Plain text only — never sent to the engine; carried in share links and backups.
     val note: String = "",
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val sendToInternalInterface: Boolean = false
 ) : Parcelable
 
 /**

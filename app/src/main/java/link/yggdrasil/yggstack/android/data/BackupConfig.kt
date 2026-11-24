@@ -138,6 +138,7 @@ data class BackupConfig(
             // current array-of-table entry
             var curLocalPort = 0
             var curLocalIp = "127.0.0.1"
+            var curSendToInternalInterface = false
             var curYggPort = 0
             var curRemotePort = 0
             var curRemoteIp = ""
@@ -153,6 +154,7 @@ data class BackupConfig(
                         protocol = curProtocol,
                         localPort = curLocalPort,
                         localIp = curLocalIp,
+                        sendToInternalInterface = curSendToInternalInterface,
                         yggPort = curYggPort,
                         shortName = curShortName,
                         note = curNote
@@ -171,7 +173,7 @@ data class BackupConfig(
                     )
                     inForwardMappingEntry = false
                 }
-                curLocalPort = 0; curLocalIp = "127.0.0.1"; curYggPort = 0; curRemotePort = 0
+                curLocalPort = 0; curLocalIp = "127.0.0.1"; curSendToInternalInterface = false; curYggPort = 0; curRemotePort = 0
                 curRemoteIp = ""; curProtocol = Protocol.TCP; curShortName = ""; curNote = ""
             }
 
@@ -253,6 +255,7 @@ data class BackupConfig(
                     "expose.mappings" -> when (key) {
                         "localPort" -> curLocalPort = intVal()
                         "localIp"   -> curLocalIp   = strVal()
+                        "sendToInternalInterface" -> curSendToInternalInterface = boolVal()
                         "yggPort"   -> curYggPort   = intVal()
                         "protocol"  -> curProtocol  = Protocol.valueOf(strVal().uppercase())
                         "shortName" -> curShortName = strVal()
@@ -364,6 +367,7 @@ data class BackupConfig(
             appendLine("[[expose.mappings]]")
             appendLine("localPort = ${m.localPort}")
             appendLine("localIp = \"${m.localIp.tomlEscape()}\"")
+            if (m.sendToInternalInterface) appendLine("sendToInternalInterface = true")
             appendLine("yggPort = ${m.yggPort}")
             appendLine("protocol = \"${m.protocol.name}\"")
             if (m.shortName.isNotBlank()) appendLine("shortName = \"${m.shortName.tomlEscape()}\"")
