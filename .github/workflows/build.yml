@@ -1,0 +1,52 @@
+name: build
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Submodule over HTTPS
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1 -- lib/yggstack
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/setup-go@v5
+        with: { go-version: stable }
+      - name: Android SDK
+        run: |
+          SDKM=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
+          yes | $SDKM --licenses >/dev/null || true
+          $SDKM "platforms;android-37.0" "ndk;28.2.13676358" "build-tools;35.0.0"
+          ln -s $ANDROID_HOME/platforms/android-37.0 $ANDROID_HOME/platforms/android-37
+      - name: Hev AAR
+        run: |
+          mkdir -p app/libs
+          curl -fL -o app/libs/hev-socks5-tunnel.aar https://github.com/heiher/hev-socks5-tunnel/releases/download/2.20.0/hev-socks5-tunnel.aar
+      - name: Go AAR (release)
+        env:
+          CI: "true"
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358
+          export NDK_HOME=$ANDROID_NDK_HOME
+          export PATH=$(go env GOPATH)/bin:$PATH
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260908204917-8b95e45f8d3e
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260908204917-8b95e45f8d3e
+          cd lib/yggstack && bash mobile/build-android.sh
+          cp android-build/yggstack.aar ../../app/libs/yggstack.aar
+      - name: Gradle release
+        run: ./gradlew --no-daemon assembleGoRelease
+      - name: Sign
+        run: |
+          BT=$ANDROID_HOME/build-tools/35.0.0
+          DIR=app/build/outputs/apk/go/release
+          APK=$(ls $DIR/*universal*.apk 2>/dev/null | head -1)
+          [ -z "$APK" ] && APK=$(ls $DIR/*.apk | head -1)
+          keytool -genkeypair -keystore ygg.jks -alias ygg -keyalg RSA -keysize 2048 \
+            -validity 10000 -storepass yggpass -keypass yggpass -dname "CN=ygg"
+          $BT/zipalign -f 4 "$APK" aligned.apk
+          $BT/apksigner sign --ks ygg.jks --ks-pass pass:yggpass --out yggstack-plus-release.apk aligned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yggstack-plus-release
+          path: yggstack-plus-release.apk
