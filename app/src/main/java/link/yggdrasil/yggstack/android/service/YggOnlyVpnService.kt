@@ -148,6 +148,7 @@ class YggOnlyVpnService : VpnService() {
         const val EXTRA_PORT = "socks_port"
         const val EXTRA_LOCAL_ADDRESS = "local_yggdrasil_address"
         const val PREFS = "ygg_only_vpn"
+        const val KEY_ENABLED = "enabled"
         const val KEY_RUNNING = "running"
         private const val KEY_ADDRESS = "address"
         private const val KEY_PORT = "port"
