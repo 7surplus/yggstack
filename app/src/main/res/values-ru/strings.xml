@@ -150,7 +150,7 @@
     <string name="autostart_description">Примечание: Xiaomi, Huawei, Oppo могут требовать дополнительные разрешения на автозапуск в настройках системы.</string>
     <string name="general_section">Общие</string>
     <string name="ygg_vpn_title">VPN только для Yggdrasil</string>
-    <string name="ygg_vpn_description">Через локальный SOCKS5 и Hev направляется только IPv6-сеть Yggdrasil (200::/7). Сначала запустите Yggstack с включённым SOCKS5. TCP и UDP передаются через SOCKS5. Имя TUN назначает Android; метка VPN — Yggdrasil.</string>
+    <string name="ygg_vpn_description">В VPN назначается адрес этого узла Yggdrasil, а маршруты сети 200::/7 идут через SOCKS5 и Hev. Это позволяет приложениям привязаться к адресу Yggdrasil. VPN запускается вместе с узлом и останавливается вместе с ним.</string>
     <string name="ygg_vpn_start">Запустить Yggdrasil VPN</string>
     <string name="ygg_vpn_stop">Остановить Yggdrasil VPN</string>
     <string name="ygg_vpn_running">Маршрутизация IPv6 Yggdrasil через Hev SOCKS5</string>

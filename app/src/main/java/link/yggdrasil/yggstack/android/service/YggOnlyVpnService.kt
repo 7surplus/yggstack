@@ -33,17 +33,19 @@ class YggOnlyVpnService : VpnService() {
                     ?: saved.getString(KEY_ADDRESS, "127.0.0.1")
                 val port = intent?.getIntExtra(EXTRA_PORT, 0)?.takeIf { it > 0 }
                     ?: saved.getInt(KEY_PORT, 1080)
-                if (address.isNullOrBlank() || port !in 1..65535) {
+                val localYggAddress = intent?.getStringExtra(EXTRA_LOCAL_ADDRESS)
+                    ?: saved.getString(KEY_LOCAL_ADDRESS, null)
+                if (address.isNullOrBlank() || port !in 1..65535 || !isYggdrasilAddress(localYggAddress)) {
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
-                startTunnel(address, port, startId)
+                startTunnel(address, port, localYggAddress!!, startId)
             }
         }
         return START_STICKY
     }
 
-    private fun startTunnel(socksAddress: String, socksPort: Int, startId: Int) {
+    private fun startTunnel(socksAddress: String, socksPort: Int, localYggAddress: String, startId: Int) {
         if (tun != null) stopTunnel()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification())
@@ -52,7 +54,8 @@ class YggOnlyVpnService : VpnService() {
             val builder = Builder()
                 .setSession("Yggdrasil")
                 .setMtu(1500)
-                .addAddress("fc00::1", 128)
+                // Give apps the actual Yggdrasil address so they can bind to it.
+                .addAddress(localYggAddress, 128)
                 // Yggdrasil's routed address space, matching yggdrasil-android.
                 .addRoute("200::", 7)
                 // Android DNS resolver AAAA-query compatibility route, also used
@@ -65,7 +68,7 @@ class YggOnlyVpnService : VpnService() {
                 tunnel:
                   name: tun0
                   mtu: 1500
-                  ipv6: 'fc00::1'
+                  ipv6: '$localYggAddress'
                   icmp: 'off'
                 socks5:
                   address: '$socksAddress'
@@ -84,6 +87,7 @@ class YggOnlyVpnService : VpnService() {
                 .putBoolean(KEY_RUNNING, true)
                 .putString(KEY_ADDRESS, socksAddress)
                 .putInt(KEY_PORT, socksPort)
+                .putString(KEY_LOCAL_ADDRESS, localYggAddress)
                 .apply()
         } catch (e: Exception) {
             stopTunnel()
@@ -132,15 +136,22 @@ class YggOnlyVpnService : VpnService() {
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .build()
 
+    private fun isYggdrasilAddress(address: String?): Boolean = address != null && runCatching {
+        val bytes = java.net.InetAddress.getByName(address).address
+        bytes.size == 16 && (bytes[0].toInt() and 0xfe) == 0x02
+    }.getOrDefault(false)
+
     companion object {
         const val ACTION_START = "link.yggdrasil.yggstack.android.plus.VPN_START"
         const val ACTION_STOP = "link.yggdrasil.yggstack.android.plus.VPN_STOP"
         const val EXTRA_ADDRESS = "socks_address"
         const val EXTRA_PORT = "socks_port"
+        const val EXTRA_LOCAL_ADDRESS = "local_yggdrasil_address"
         const val PREFS = "ygg_only_vpn"
         const val KEY_RUNNING = "running"
         private const val KEY_ADDRESS = "address"
         private const val KEY_PORT = "port"
+        private const val KEY_LOCAL_ADDRESS = "local_yggdrasil_address"
         private const val CHANNEL_ID = "ygg_only_vpn"
         private const val NOTIFICATION_ID = 7012
     }

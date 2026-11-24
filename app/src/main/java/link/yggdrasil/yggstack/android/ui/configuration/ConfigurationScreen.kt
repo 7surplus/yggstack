@@ -1,9 +1,11 @@
 package link.yggdrasil.yggstack.android.ui.configuration
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.VpnService
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
@@ -53,12 +55,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.viewmodel.compose.viewModel
 import link.yggdrasil.yggstack.android.R
 import link.yggdrasil.yggstack.android.data.*
 import link.yggdrasil.yggstack.android.ui.configuration.discovery.PeerDiscoveryScreen
 import link.yggdrasil.yggstack.android.ui.configuration.discovery.PeerDiscoveryViewModel
 import link.yggdrasil.yggstack.android.utils.CountryFlags
+import link.yggdrasil.yggstack.android.service.YggOnlyVpnService
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,6 +77,7 @@ fun ConfigurationScreen(
     val isPro = uiMode == UiMode.PRO
     val config by viewModel.config.collectAsStateWithLifecycle()
     val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
+    val yggdrasilIp by viewModel.yggdrasilIp.collectAsStateWithLifecycle()
     val showPrivateKey by viewModel.showPrivateKey.collectAsStateWithLifecycle()
     val pendingDeepLink by viewModel.pendingDeepLink.collectAsStateWithLifecycle()
     val showTransitTrafficWarning by viewModel.showTransitTrafficWarning.collectAsStateWithLifecycle()
@@ -86,6 +92,20 @@ fun ConfigurationScreen(
     // discovery screen is closed. Activity-scoped: the same instance is handed
     // to PeerDiscoveryScreen below.
     val discoveryContext = LocalContext.current
+    var yggVpnEnabled by remember {
+        mutableStateOf(discoveryContext.getSharedPreferences(YggOnlyVpnService.PREFS, Context.MODE_PRIVATE)
+            .getBoolean(YggOnlyVpnService.KEY_ENABLED, false))
+    }
+    val vpnConsentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            discoveryContext.getSharedPreferences(YggOnlyVpnService.PREFS, Context.MODE_PRIVATE).edit()
+                .putBoolean(YggOnlyVpnService.KEY_ENABLED, true).apply()
+            yggVpnEnabled = true
+            if (serviceState is ServiceState.Running) yggdrasilIp?.let {
+                startConfiguredYggVpn(discoveryContext, config.socksProxy, it)
+            }
+        }
+    }
     val discoveryRepository = remember { ConfigRepository(discoveryContext) }
     val discoveryViewModel: PeerDiscoveryViewModel = viewModel(
         factory = remember { PeerDiscoveryViewModel.Factory(discoveryRepository) }
@@ -591,6 +611,35 @@ fun ConfigurationScreen(
                             CopyAddressButton(context, config.socksProxy)
                         }
                     }
+                )
+
+                ProxySettingRow(
+                    label = stringResource(R.string.ygg_vpn_title),
+                    value = stringResource(R.string.ygg_vpn_description),
+                    checked = yggVpnEnabled,
+                    onCheckedChange = { enabled ->
+                        val prefs = discoveryContext.getSharedPreferences(YggOnlyVpnService.PREFS, Context.MODE_PRIVATE)
+                        if (!enabled) {
+                            prefs.edit().putBoolean(YggOnlyVpnService.KEY_ENABLED, false).apply()
+                            yggVpnEnabled = false
+                            discoveryContext.startService(Intent(discoveryContext, YggOnlyVpnService::class.java).apply {
+                                action = YggOnlyVpnService.ACTION_STOP
+                            })
+                        } else if (!config.proxyEnabled || !config.socksEnabled) {
+                            Toast.makeText(discoveryContext, R.string.ygg_vpn_enable_socks_first, Toast.LENGTH_LONG).show()
+                        } else {
+                            val consent = VpnService.prepare(discoveryContext)
+                            if (consent == null) {
+                                prefs.edit().putBoolean(YggOnlyVpnService.KEY_ENABLED, true).apply()
+                                yggVpnEnabled = true
+                                if (serviceState is ServiceState.Running) yggdrasilIp?.let {
+                                    startConfiguredYggVpn(discoveryContext, config.socksProxy, it)
+                                }
+                            } else vpnConsentLauncher.launch(consent)
+                        }
+                    },
+                    enabled = (config.proxyEnabled && config.socksEnabled) || yggVpnEnabled,
+                    onClick = {}
                 )
 
                 val dnsValue = config.dnsServer.ifBlank { stringResource(R.string.dns_server_hint) } +
@@ -1327,6 +1376,22 @@ fun ConfigSectionWithToggle(
             }
         }
     }
+}
+
+private fun startConfiguredYggVpn(context: Context, socks: String, localYggAddress: String) {
+    val match = Regex("^(\\[[^]]+]|[^:]*):(\\d+)$").matchEntire(socks.trim()) ?: return
+    val host = match.groupValues[1].removePrefix("[").removeSuffix("]").let {
+        if (it.isBlank() || it == "0.0.0.0" || it == "::") "127.0.0.1" else it
+    }
+    val port = match.groupValues[2].toIntOrNull()?.takeIf { it in 1..65535 } ?: return
+    val intent = Intent(context, YggOnlyVpnService::class.java).apply {
+        action = YggOnlyVpnService.ACTION_START
+        putExtra(YggOnlyVpnService.EXTRA_ADDRESS, host)
+        putExtra(YggOnlyVpnService.EXTRA_PORT, port)
+        putExtra(YggOnlyVpnService.EXTRA_LOCAL_ADDRESS, localYggAddress)
+    }
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) context.startForegroundService(intent)
+    else context.startService(intent)
 }
 
 /**

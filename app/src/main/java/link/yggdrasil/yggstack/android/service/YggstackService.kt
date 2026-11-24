@@ -750,6 +750,7 @@ class YggstackService : Service() {
                     _isRunning.value = true
                     _isSessionActive.value = true
                 }
+                startYggVpnIfEnabled(config)
                 if (lifecycle.isDestroyed) return
                 persistServiceWasRunning(true)
                 _peerCount.value = 0
@@ -841,6 +842,7 @@ class YggstackService : Service() {
 
     private suspend fun stopNode(enterPowerSaveIdle: Boolean, destroying: Boolean = false) {
         if (enterPowerSaveIdle && (!_isRunning.value || !_isSessionActive.value)) return
+        stopYggVpn()
         _isTransitioning.value = true
         try {
             // Clear Best-one selection state before the engine goes down, so
@@ -922,6 +924,32 @@ class YggstackService : Service() {
         } finally {
             _isTransitioning.value = false
         }
+    }
+
+    private fun startYggVpnIfEnabled(config: YggstackConfig) {
+        val prefs = getSharedPreferences(YggOnlyVpnService.PREFS, MODE_PRIVATE)
+        if (!prefs.getBoolean(YggOnlyVpnService.KEY_ENABLED, false) ||
+            !config.proxyEnabled || !config.socksEnabled || config.socksProxy.isBlank()
+        ) return
+        val localYggAddress = yggstack?.getAddress() ?: return
+        val match = Regex("^(\\[[^]]+]|[^:]*):(\\d+)$").matchEntire(config.socksProxy.trim()) ?: return
+        val host = match.groupValues[1].removePrefix("[").removeSuffix("]").let {
+            if (it.isBlank() || it == "0.0.0.0" || it == "::") "127.0.0.1" else it
+        }
+        val port = match.groupValues[2].toIntOrNull()?.takeIf { it in 1..65535 } ?: return
+        val intent = Intent(this, YggOnlyVpnService::class.java).apply {
+            action = YggOnlyVpnService.ACTION_START
+            putExtra(YggOnlyVpnService.EXTRA_ADDRESS, host)
+            putExtra(YggOnlyVpnService.EXTRA_PORT, port)
+            putExtra(YggOnlyVpnService.EXTRA_LOCAL_ADDRESS, localYggAddress)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+    }
+
+    private fun stopYggVpn() {
+        startService(Intent(this, YggOnlyVpnService::class.java).apply {
+            action = YggOnlyVpnService.ACTION_STOP
+        })
     }
 
     private fun stopNativeNode() {
