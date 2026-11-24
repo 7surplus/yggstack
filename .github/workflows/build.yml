@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/yggdrasil-vpn-lifecycle
+      - main
 jobs:
   build:
     runs-on: ubuntu-latest
