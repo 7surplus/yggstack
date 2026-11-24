@@ -3,6 +3,7 @@ package link.yggdrasil.yggstack.android.ui.settings
 import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
+import android.net.VpnService
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -39,6 +40,7 @@ import link.yggdrasil.yggstack.android.data.ConfigRepository
 import link.yggdrasil.yggstack.android.data.ServiceStartMode
 import link.yggdrasil.yggstack.android.data.VersionChecker
 import link.yggdrasil.yggstack.android.data.YggstackConfig
+import link.yggdrasil.yggstack.android.service.YggOnlyVpnService
 import link.yggdrasil.yggstack.android.ui.diagnostics.ExportBackupDialog
 import link.yggdrasil.yggstack.android.ui.diagnostics.ImportPreviewDialog
 import link.yggdrasil.yggstack.android.utils.AppLinkHelper
@@ -63,6 +65,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val repository = remember { ConfigRepository(context) }
+    val yggConfig by repository.configFlow.collectAsStateWithLifecycle(initialValue = YggstackConfig())
     val selectedTheme by repository.themeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val selectedLanguage by repository.languageFlow.collectAsStateWithLifecycle(initialValue = "en")
     val autostartEnabled by repository.autostartFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -73,6 +76,26 @@ fun SettingsScreen(
     val useSystemColors by repository.useSystemColorsFlow.collectAsStateWithLifecycle(initialValue = initialUseSystemColors)
     val coroutineScope = rememberCoroutineScope()
     val systemColorsSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    var yggVpnRunning by remember {
+        mutableStateOf(context.getSharedPreferences(YggOnlyVpnService.PREFS, Activity.MODE_PRIVATE)
+            .getBoolean(YggOnlyVpnService.KEY_RUNNING, false))
+    }
+    var requestedSocks by remember { mutableStateOf<Pair<String, Int>?>(null) }
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val endpoint = requestedSocks
+        requestedSocks = null
+        if (result.resultCode == Activity.RESULT_OK && endpoint != null) {
+            startYggOnlyVpn(context, endpoint.first, endpoint.second)
+            yggVpnRunning = true
+        }
+    }
+    LifecycleResumeEffect(Unit) {
+        yggVpnRunning = context.getSharedPreferences(YggOnlyVpnService.PREFS, Activity.MODE_PRIVATE)
+            .getBoolean(YggOnlyVpnService.KEY_RUNNING, false)
+        onPauseOrDispose { }
+    }
 
     Column(
         modifier = modifier
@@ -80,6 +103,53 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(stringResource(R.string.ygg_vpn_title), style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    stringResource(R.string.ygg_vpn_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    enabled = yggVpnRunning || yggConfig != null,
+                    onClick = {
+                        if (yggVpnRunning) {
+                            context.startService(Intent(context, YggOnlyVpnService::class.java).apply {
+                                action = YggOnlyVpnService.ACTION_STOP
+                            })
+                            yggVpnRunning = false
+                        } else {
+                            val config = yggConfig
+                            if (config == null || !config.proxyEnabled || !config.socksEnabled) {
+                                Toast.makeText(context, R.string.ygg_vpn_enable_socks_first, Toast.LENGTH_LONG).show()
+                            } else {
+                                val endpoint = parseSocksEndpoint(config.socksProxy)
+                                if (endpoint == null) {
+                                    Toast.makeText(context, R.string.ygg_vpn_invalid_socks, Toast.LENGTH_LONG).show()
+                                } else {
+                                    val consent = VpnService.prepare(context)
+                                    if (consent != null) {
+                                        requestedSocks = endpoint
+                                        vpnPermissionLauncher.launch(consent)
+                                    } else {
+                                        startYggOnlyVpn(context, endpoint.first, endpoint.second)
+                                        yggVpnRunning = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Text(stringResource(if (yggVpnRunning) R.string.ygg_vpn_stop else R.string.ygg_vpn_start))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         // UI Section
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -577,6 +647,28 @@ fun SettingsScreen(
             Text(stringResource(R.string.system_menu))
         }
     }
+}
+
+private fun startYggOnlyVpn(context: android.content.Context, address: String, port: Int) {
+    val intent = Intent(context, YggOnlyVpnService::class.java).apply {
+        action = YggOnlyVpnService.ACTION_START
+        putExtra(YggOnlyVpnService.EXTRA_ADDRESS, address)
+        putExtra(YggOnlyVpnService.EXTRA_PORT, port)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+    else context.startService(intent)
+}
+
+private fun parseSocksEndpoint(value: String): Pair<String, Int>? {
+    val trimmed = value.trim()
+    val match = Regex("^(\[[^]]+]|[^:]*):(\d+)$").matchEntire(trimmed) ?: return null
+    val rawHost = match.groupValues[1].removePrefix("[").removeSuffix("]")
+    val host = when (rawHost) {
+        "", "0.0.0.0", "::" -> "127.0.0.1"
+        else -> rawHost
+    }
+    val port = match.groupValues[2].toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+    return host to port
 }
 
 /**
