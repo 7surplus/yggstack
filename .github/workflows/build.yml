@@ -50,7 +50,7 @@ jobs:
             -validity 10000 -storepass yggpass -keypass yggpass -dname "CN=ygg"
           $BT/zipalign -f 4 "$APK" aligned.apk
           $BT/apksigner sign --ks ygg.jks --ks-pass pass:yggpass --out yggstack-plus-release.apk aligned.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: yggstack-plus-release
           path: yggstack-plus-release.apk
