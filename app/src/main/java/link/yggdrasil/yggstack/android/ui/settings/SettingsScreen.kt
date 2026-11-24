@@ -661,7 +661,7 @@ private fun startYggOnlyVpn(context: android.content.Context, address: String, p
 
 private fun parseSocksEndpoint(value: String): Pair<String, Int>? {
     val trimmed = value.trim()
-    val match = Regex("^(\[[^]]+]|[^:]*):(\d+)$").matchEntire(trimmed) ?: return null
+    val match = Regex("""^(\[[^]]+]|[^:]*):(\d+)$""").matchEntire(trimmed) ?: return null
     val rawHost = match.groupValues[1].removePrefix("[").removeSuffix("]")
     val host = when (rawHost) {
         "", "0.0.0.0", "::" -> "127.0.0.1"

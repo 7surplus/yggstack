@@ -201,7 +201,7 @@ android {
 
     defaultConfig {
         applicationId = "link.yggdrasil.yggstack.android.plus"
-        minSdk = 23
+        minSdk = 29
         targetSdk = 34
         versionCode = getVersionCode()
         versionName = getVersionName()
