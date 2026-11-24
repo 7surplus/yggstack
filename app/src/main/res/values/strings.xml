@@ -155,7 +155,7 @@
     <string name="autostart_description">Note: Xiaomi, Huawei, Oppo may require additional autostart permission in their system settings.</string>
     <string name="general_section">General</string>
     <string name="ygg_vpn_title">Yggdrasil only VPN</string>
-    <string name="ygg_vpn_description">The VPN interface uses this node's Yggdrasil address, with 200::/7 routed through SOCKS5 and Hev. This lets apps bind to the Yggdrasil address. The VPN starts and stops with the Yggstack node.</string>
+    <string name="ygg_vpn_description">The VPN interface uses this node\'s Yggdrasil address, with 200::/7 routed through SOCKS5 and Hev. This lets apps bind to the Yggdrasil address. The VPN starts and stops with the Yggstack node.</string>
     <string name="ygg_vpn_start">Start Yggdrasil VPN</string>
     <string name="ygg_vpn_stop">Stop Yggdrasil VPN</string>
     <string name="ygg_vpn_running">Routing Yggdrasil IPv6 through Hev SOCKS5</string>
